@@ -184,9 +184,11 @@ const handleTouchStart = (event: TouchEvent) => {
 
   if (!props.keyData.main) return;
 
-  // Solo emitir mousedown si hay caracteres especiales
+  // Emitir el evento para todas las teclas, independientemente de si tienen caracteres especiales
   if (hasSpecialChars.value) {
     emit('mousedown', event, props.keyData.main, props.keyData.special);
+  } else {
+    emit('mousedown', event, props.keyData.main);
   }
 };
 

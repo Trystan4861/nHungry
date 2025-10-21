@@ -187,41 +187,33 @@ export const handleExport = (options: {
   fileName?: string;
   data?: any;
 } = {}) => {
-  try {
-    const store = myStore();
-    const { fileName = 'hungry_config', data = store.exportData() } = options;
+  const store = myStore();
+  const { fileName = 'hungry_config', data = store.exportData() } = options;
 
-    // Crear un objeto Blob con los datos
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  // Crear un objeto Blob con los datos
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
 
-    // Crear una URL para el Blob
-    const url = URL.createObjectURL(blob);
+  // Crear una URL para el Blob
+  const url = URL.createObjectURL(blob);
 
-    // Crear un elemento <a> para descargar el archivo
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${fileName}_${new Date().toISOString().slice(0, 10)}.json`;
+  // Crear un elemento <a> para descargar el archivo
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${fileName}_${new Date().toISOString().slice(0, 10)}.json`;
 
-    // Añadir el elemento al DOM, hacer clic en él y luego eliminarlo
-    document.body.appendChild(a);
-    a.click();
+  // Añadir el elemento al DOM, hacer clic en él y luego eliminarlo
+  document.body.appendChild(a);
+  a.click();
 
-    // Limpiar
-    setTimeout(() => {
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 0);
+  // Limpiar
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 0);
 
-    showSuccess(
-      'Exportación completada',
-      'La configuración se ha exportado correctamente',
-      2000
-    );
-  } catch (error) {
-    console.error('Error al exportar archivo:', error);
-    showError(
-      'Error de exportación',
-      'No se pudo generar el archivo de configuración'
-    );
-  }
+  showSuccess(
+    'Exportación completada',
+    'La configuración se ha exportado correctamente',
+    2000
+  );
 };
