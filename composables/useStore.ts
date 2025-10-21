@@ -541,7 +541,7 @@ export const myStore = () => {
   const defaultTabActive = useState<number>('defaultTabActive', () => 2);
   const setDefaultTabActive = (tabIndex: number) => {
     defaultTabActive.value = tabIndex;
-    saveDataToLocalStorage();
+    localStorageService.setSubItem('defaultTabActive', tabIndex);
   };
 
   const alturaDisponible = useState<number>('alturaDisponible', () => 0);
