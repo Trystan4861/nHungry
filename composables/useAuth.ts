@@ -2,8 +2,9 @@ import { ref } from 'vue';
 import md5 from 'md5';
 import { _DOM, DID } from '~/utils/dom';
 import { myStore } from '~/composables/useStore';
-import { apiService } from '~/services/apiService';
+import getApiService from '~/services/apiService';
 import { showSuccess, showErrorSwal as showError, showLoginForm, showLogoutConfirm, showValidationMessage, getSwalPopup } from '~/utils/sweetalert';
+import type { LoginResponse } from '~/types/api/response';
 
 /**
  * useAuth
@@ -15,6 +16,7 @@ export function useAuth() {
   const showRegisterMessage = ref(true);
   const dll = ref('loginLinks');
 
+  const apiService = getApiService();
 
   /**
    * handleForgetPass
@@ -37,8 +39,8 @@ export function useAuth() {
       titleElement.innerText = showRegisterMessage.value ? "Realizar Registro" : "Iniciar Sesión";
       confirmButton.innerHTML = showRegisterMessage.value ? "Registrarse" : "Aceptar";
     }
-
     showRegisterMessage.value = !showRegisterMessage.value;
+
   };
 
   /**
@@ -82,22 +84,26 @@ const pattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[A-Za-z\d@$!%*?&]{8,}$/;
 
           try {
             // Usar el servicio de API para login o registro
-            const response = await (showRegisterMessage.value
-              ? apiService.login(email, pass, store.loginData.value.fingerID)
-              : apiService.register(email, pass, store.loginData.value.fingerID));
+            const response: LoginResponse = await (!showRegisterMessage.value
+              ? apiService.register({ email, pass })
+              : apiService.login({ email, pass, fingerid: store.loginData.value.fingerID }));
 
-            if (response.result) {
-              store.loginData.value.token = response.token;
-              store.loginData.value.logged = true;
+            if (response.result && response.token) {
+              store.updateLoginData({
+                email: email,
+                token: response.token,
+                fingerID: store.loginData.value.fingerID,
+                logged: true
+              });
 
               showSuccess(
-                'Sesión iniciada',
-                'Has iniciado sesión correctamente'
+                !showRegisterMessage.value ? 'Registro completado' : 'Sesión iniciada',
+                !showRegisterMessage.value ? 'Te has registrado correctamente' : 'Has iniciado sesión correctamente'
               );
             } else {
               showError(
                 'ERROR',
-                response.error_msg
+                response.error_msg || 'Error en la operación'
               );
             }
           } catch (error) {
@@ -130,8 +136,7 @@ const pattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[A-Za-z\d@$!%*?&]{8,}$/;
       // Mostramos un diálogo de confirmación para cerrar la sesión
       showLogoutConfirm(() => {
         // Actualizar loginData en el store
-        store.loginData.value = { email: '', token: '', fingerID: store.loginData.value.fingerID, logged: false };
-
+        store.updateLoginData({ email: '', token: '', fingerID: store.loginData.value.fingerID, logged: false });
         showSuccess(
           'Sesión cerrada',
           'Has cerrado sesión correctamente'

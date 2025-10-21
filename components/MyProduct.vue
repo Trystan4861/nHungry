@@ -5,7 +5,7 @@
     :data-categoria="product.id_categoria"
   >
     <span
-      :style="{ backgroundColor: categoryColor }"
+      :style="{ '--product-bg-color': categoryColor }"
       class="productCategory"
       @click="handleCategoryClick"></span>
     <div
@@ -24,32 +24,29 @@
           v-if="props.product.selected"
           class="plus"
           @click.stop="incrementAmount"
-        >
-          ➕
-        </div>
+        ></div>
         <div
           v-if="props.product.selected"
           class="minus"
           @click.stop="decrementAmount"
         >
-          <div v-if="props.product.amount > 1">➖</div>
-          <div v-else class="rotate-45">➕</div>
+          <div v-if="props.product.amount > 1"></div>
+          <div v-else class="rotate-45"></div>
         </div>
         <div
           v-if="showEdit && !props.product.selected"
           class="edit"
           @click.stop="emitEdit"
-        >
-          ✏️
-        </div>
+        ></div>
       </div>
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onBeforeUnmount } from 'vue';
 import { myStore } from '~/composables/useStore';
+import { useTouch } from '~/composables/useTouch';
 import type { Producto } from '~/types';
 import { parseEmoji } from '~/utils';
 import '~/css/components/MyProduct.css';
@@ -81,6 +78,30 @@ const categoryColor = computed(() =>
 );
 
 const productName = computed(() => parseEmoji(props.product.text));
+
+const { handleTouchStart, handleTouchEnd, handleTouchMove, cleanup } = useTouch();
+
+const handleInteraction = (event: MouseEvent | TouchEvent) => {
+  if (isDragging.value) return;
+
+  if (!props.product.selected) {
+    emit('update:selected', true);
+    emit('update:amount', 1);
+  }
+};
+
+const handleTouchEvents = {
+  onTap: handleInteraction,
+  onDoubleTap: () => {
+    if (props.product.selected && props.canBeDone) {
+      emit('update:done', !props.product.done);
+    }
+  }
+};
+
+onBeforeUnmount(() => {
+  cleanup();
+});
 
 // Métodos
 function handleTap() {

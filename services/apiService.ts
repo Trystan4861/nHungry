@@ -1,422 +1,528 @@
-import axios from 'axios';
-import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
-import { localStorageService } from '~/localStorageService';
-import type { Producto, Categoria, Supermercado } from '~/types';
+import type { LoginCredentials, RegisterCredentials } from '~/types/api/credentials';
+import type { LoginResponse, RegisterResponse, ApiResponse, SyncDataResponse } from '~/types/api/response';
+import { SyncActionType, type SyncAction, type QueueItem, type SyncData } from '~/types/sync/sync';
+import { getEnvVar } from '~/composables/useEnvVar';
+import type { myStore as MyStoreType } from '~/composables/useStore';
+import type { Producto } from '~/types';
 
 /**
- * apiService
- * Servicio para gestionar todas las comunicaciones con la API del backend
- * Proporciona métodos para autenticación, gestión de productos, categorías y supermercados
+ * Clase principal del servicio API
+ * Maneja todas las comunicaciones con el backend de Hungry
  */
-class ApiService {
-  private api: AxiosInstance;
-  private baseURL: string;
-  private pendingRequests: Array<{
-    method: string;
-    endpoint: string;
-    data: any;
-    resolve: (value: any) => void;
-    reject: (reason: any) => void;
-  }> = [];
-  private isOnline: boolean = true;
+export class ApiService {
+  private store: ReturnType<typeof MyStoreType> | null = null;
+  private baseUrl: string | null = null;
+  private token: string | null = null;
+  private isOnline: boolean = navigator.onLine;
+  private processQueue: QueueItem[] = [];
+  private readonly QUEUE_STORAGE_KEY = 'hungry_api_queue';
 
-  constructor() {
-    // URL base de la API
-    this.baseURL = 'https://infoinnova.es/lolo/api';
+  constructor(baseUrl: string | null = null) {
+    // Guardamos la URL base proporcionada, si existe
+    this.baseUrl = baseUrl || this.getBaseUrl();
 
-    // Crear instancia de axios con configuración base
-    this.api = axios.create({
-      baseURL: this.baseURL,
-      timeout: 10000,
-      headers: {
-        'Content-Type': 'application/json',
-      }
-    });
+    // Inicializamos la cola y los listeners independientemente de la URL base
+    // La URL base se obtendrá de forma diferida cuando sea necesaria
+    this.initializeQueue();
+    this.setupOnlineListener();
+  }
 
-    // Configurar interceptores
-    this.setupInterceptors();
-
-    // Cargar solicitudes pendientes del localStorage
-    this.loadPendingRequests();
-
-    // Configurar eventos de conexión
-    if (typeof window !== 'undefined') {
-      window.addEventListener('online', this.handleOnline.bind(this));
-      window.addEventListener('offline', this.handleOffline.bind(this));
-      this.isOnline = navigator.onLine;
+  /**
+   * Obtiene la URL base del API, inicializándola si es necesario
+   * @returns La URL base del API
+   */
+  private getBaseUrl(): string | null {
+    // Si ya tenemos una URL base, la devolvemos
+    if (this.baseUrl) {
+      return this.baseUrl;
     }
-  }
 
-  /**
-   * setupInterceptors
-   * Configura los interceptores de axios para manejar tokens y errores
-   */
-  private setupInterceptors(): void {
-    // Interceptor de solicitudes
-    this.api.interceptors.request.use(
-      (config) => {
-        // Obtener token del localStorage
-        const loginData = localStorageService.getSubItem('loginData');
-        if (loginData && loginData.token) {
-          config.headers['Authorization'] = `Bearer ${loginData.token}`;
-        }
-        return config;
-      },
-      (error) => {
-        return Promise.reject(error);
-      }
-    );
-
-    // Interceptor de respuestas
-    this.api.interceptors.response.use(
-      (response) => {
-        return response;
-      },
-      (error: unknown) => {
-        const axiosError = error as {
-          response?: { status: number },
-          config?: { method: string; url: string; data: any }
-        };
-
-        // Manejar errores de red o servidor
-        if (!axiosError.response) {
-          // Error de red o servidor no disponible
-          this.isOnline = false;
-
-          // Si hay una promesa de solicitud, la guardamos para reintentarla cuando haya conexión
-          if (axiosError.config) {
-            const { method, url, data } = axiosError.config;
-            return new Promise((resolve, reject) => {
-              this.addPendingRequest(method, url.replace(this.baseURL, ''), data, resolve, reject);
-            });
-          }
-        } else if (axiosError.response?.status === 401) {
-          // Token inválido o expirado
-          localStorageService.setSubItem('loginData', { email: '', token: '', fingerID: '', logged: false });
-          // Redirigir a login o mostrar mensaje
-          console.error('Sesión expirada. Por favor, inicie sesión nuevamente.');
-        }
-
-        return Promise.reject(error);
-      }
-    );
-  }
-
-  /**
-   * addPendingRequest
-   * Añade una solicitud a la cola de pendientes para reintentarla cuando haya conexión
-   * @param method - Método HTTP (get, post, etc.)
-   * @param endpoint - Endpoint de la API
-   * @param data - Datos de la solicitud
-   * @param resolve - Función para resolver la promesa
-   * @param reject - Función para rechazar la promesa
-   */
-  private addPendingRequest(
-    method: string,
-    endpoint: string,
-    data: any,
-    resolve: (value: any) => void,
-    reject: (reason: any) => void
-  ): void {
-    this.pendingRequests.push({ method, endpoint, data, resolve, reject });
-    this.savePendingRequests();
-  }
-
-  /**
-   * savePendingRequests
-   * Guarda las solicitudes pendientes en localStorage
-   */
-  private savePendingRequests(): void {
-    const requests = this.pendingRequests.map(({ method, endpoint, data }) => ({
-      method,
-      endpoint,
-      data
-    }));
-    localStorageService.setItem('pendingRequests', JSON.stringify(requests));
-  }
-
-  /**
-   * loadPendingRequests
-   * Carga las solicitudes pendientes desde localStorage
-   */
-  private loadPendingRequests(): void {
-    const requestsStr = localStorageService.getItem('pendingRequests');
-    if (!requestsStr) return;
-
+    // Si no tenemos URL base, intentamos obtenerla de las variables de entorno
     try {
-      const requests = JSON.parse(requestsStr as string) || [];
-      for (const request of requests) {
-        this.pendingRequests.push({
-          ...request,
-          resolve: () => {},
-          reject: () => {}
-        });
+      this.baseUrl = getEnvVar('NUXT_PUBLIC_API_URL');
+
+      if (!this.baseUrl) {
+        console.warn("La variable NUXT_PUBLIC_API_URL no está definida o es null");
       }
     } catch (error) {
-      console.error('Error al cargar solicitudes pendientes:', error);
+      console.error("Error al obtener la URL base del API:", error);
     }
+
+    return this.baseUrl;
   }
 
   /**
-   * handleOnline
-   * Maneja el evento de conexión recuperada
+   * Inicializa la cola desde localStorage
    */
-  private handleOnline(): void {
-    this.isOnline = true;
-    this.processPendingRequests();
+  private initializeQueue() {
+    const savedQueue = localStorage.getItem(this.QUEUE_STORAGE_KEY)
+    if (savedQueue) {
+      this.processQueue = JSON.parse(savedQueue)
+    }
+    this.saveQueue()
   }
 
   /**
-   * handleOffline
-   * Maneja el evento de pérdida de conexión
+   * Configura los listeners para detectar cambios en la conexión
    */
-  private handleOffline(): void {
-    this.isOnline = false;
+  private setupOnlineListener() {
+    window.addEventListener('online', () => {
+      this.isOnline = true
+      this.processQueuedItems()
+    })
+    window.addEventListener('offline', () => {
+      this.isOnline = false
+    })
   }
 
   /**
-   * processPendingRequests
-   * Procesa las solicitudes pendientes cuando se recupera la conexión
+   * Guarda la cola en localStorage
    */
-  private async processPendingRequests(): Promise<void> {
-    if (!this.isOnline || this.pendingRequests.length === 0) return;
+  private saveQueue() {
+    localStorage.setItem(this.QUEUE_STORAGE_KEY, JSON.stringify(this.processQueue))
+  }
 
-    const requests = [...this.pendingRequests];
-    this.pendingRequests = [];
-    this.savePendingRequests();
+  /**
+   * Añade un item a la cola de procesos
+   */
+  private addToQueue(method: string, url: string, data: any) {
+    if (!this.store) {
+      console.error("ApiService: Store not initialized. Cannot add to queue.");
+      // Optionally, you could throw an error or handle this situation differently,
+      // but for now, logging and returning is a safe approach to prevent crashes.
+      // Depending on application design, items might be queued in a temporary
+      // place even before store is ready, or this situation is considered fatal.
+      return; 
+    }
+    // Ensure the existing check for login status remains:
+    if (!this.store.loginData.value.logged) return; 
 
-    for (const request of requests) {
+    const queueItem: QueueItem = {
+      id: Math.random().toString(36).substring(7),
+      method,
+      url,
+      data,
+      timestamp: Date.now(),
+      type: data.type // Assuming data might have a 'type' property for sync actions
+    }
+    this.processQueue.push(queueItem)
+    this.saveQueue()
+  }
+
+  /**
+   * Procesa los items en cola cuando hay conexión
+   */
+  private async processQueuedItems() {
+    if (!this.isOnline || this.processQueue.length === 0 || !this.token) return;
+
+    const items = [...this.processQueue];
+    this.processQueue = [];
+    this.saveQueue();
+
+    for (const item of items) {
       try {
-        const { method, endpoint, data, resolve, reject } = request;
-        let response;
-
-        // Usar el método correcto según el tipo de solicitud
-        if (method.toLowerCase() === 'get') {
-          response = await this.api.get(endpoint, { params: data });
-        } else if (method.toLowerCase() === 'post') {
-          response = await this.api.post(endpoint, data);
-        } else if (method.toLowerCase() === 'put') {
-          response = await this.api.put(endpoint, data);
-        } else if (method.toLowerCase() === 'delete') {
-          response = await this.api.delete(endpoint, { data });
-        }
-        if (response) {
-          resolve(response.data);
+        if (item.type) {
+          await this.processSyncAction(item.data as SyncAction);
         } else {
-          reject(new Error(`No se pudo procesar la solicitud ${method} ${endpoint}`));
+          await this.makeRequest(item.method, item.url, item.data);
         }
-      } catch (error: unknown) {
-        console.error(`Error al procesar solicitud pendiente:`, error);
-        request.reject(error);
-        // Si sigue siendo un error de conexión, volvemos a añadir la solicitud a la cola
-        const axiosError = error as { response?: any };
-        if (!axiosError.response) {
-          this.pendingRequests.push(request);
-          this.savePendingRequests();
-        }
+      } catch (error) {
+        this.processQueue.push(item);
+        this.saveQueue();
+        break;
       }
     }
   }
 
   /**
-   * login
-   * Inicia sesión en la API
-   * @param email - Correo electrónico del usuario
-   * @param password - Contraseña del usuario (ya debe estar en MD5)
-   * @param fingerID - ID de huella digital del dispositivo
-   * @returns Respuesta de la API con token si es exitoso
+   * Wrapper para peticiones que gestiona el estado offline
    */
-  async login(email: string, password: string, fingerID: string): Promise<any> {
+  private async makeRequest(method: string, url: string, data?: any): Promise<any> {
+    if (!this.isOnline) {
+      this.addToQueue(method, url, data)
+      throw new Error('Dispositivo offline - Operación encolada')
+    }
+
     try {
-      const response = await this.api.post('/login', {
-        email,
-        pass: password,
-        fingerID
-      });
-      return response.data;
-    } catch (error: unknown) {
-      console.error('Error en login:', error);
-      throw error;
+      const response = await fetch(`${this.baseUrl}${url}`, {
+        method,
+        headers: this.getHeaders(),
+        body: data ? JSON.stringify(data) : undefined
+      })
+      return response.json()
+    } catch (error) {
+      if (!navigator.onLine) {
+        this.isOnline = false
+        this.addToQueue(method, url, data)
+        throw new Error('Conexión perdida - Operación encolada')
+      }
+      throw error
     }
   }
 
   /**
-   * register
-   * Registra un nuevo usuario en la API
-   * @param email - Correo electrónico del usuario
-   * @param password - Contraseña del usuario (ya debe estar en MD5)
-   * @param fingerID - ID de huella digital del dispositivo
-   * @returns Respuesta de la API con token si es exitoso
+   * Configura el token para las peticiones autenticadas
+   * @param token Token JWT para autenticación
    */
-  async register(email: string, password: string, fingerID: string): Promise<any> {
-    try {
-      const response = await this.api.post('/register', {
-        email,
-        pass: password,
-        fingerID
-      });
-      return response.data;
-    } catch (error: unknown) {
-      console.error('Error en registro:', error);
-      throw error;
-    }
+  setToken(token: string) {
+    this.token = token
   }
 
   /**
-   * getAll
-   * Obtiene todos los datos del usuario (productos, categorías, supermercados)
-   * @returns Respuesta de la API con todos los datos
+   * Obtiene los headers necesarios para las peticiones autenticadas
+   * @returns Headers con el token de autenticación si existe
    */
-  async getAll(): Promise<any> {
-    try {
-      const response = await this.api.get('/getAll');
-      return response.data;
-    } catch (error: unknown) {
-      console.error('Error al obtener datos:', error);
-      throw error;
+  private getHeaders(): HeadersInit {
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json'
     }
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`
+    }
+    return headers
+  }
+
+  public setStoreInstance(storeInstance: ReturnType<typeof MyStoreType>) {
+    this.store = storeInstance;
   }
 
   /**
-   * newProducto
-   * Crea un nuevo producto en la API
-   * @param producto - Datos del producto a crear
-   * @returns Respuesta de la API con el producto creado
+   * Registra un nuevo usuario en el sistema
+   * @param credentials Datos de registro (email y contraseña)
+   * @returns Respuesta con el token si el registro es exitoso y hay verificación automática
+   *          o mensaje de verificación si requiere validación por email
    */
-  async newProducto(producto: Partial<Producto>): Promise<any> {
-    try {
-      const response = await this.api.post('/newProducto', producto);
-      return response.data;
-    } catch (error: unknown) {
-      console.error('Error al crear producto:', error);
-      throw error;
-    }
+  async register(credentials: RegisterCredentials): Promise<RegisterResponse> {
+    return this.makeRequest('POST', '/register', credentials)
   }
 
   /**
-   * updateProducto
-   * Actualiza un producto existente en la API
-   * @param producto - Datos del producto a actualizar
-   * @returns Respuesta de la API con el producto actualizado
+   * Realiza el login del usuario
+   * @param credentials Credenciales del usuario (email, pass, fingerid opcional)
+   * @returns Respuesta con el token y datos del dispositivo si el login es exitoso
    */
-  async updateProducto(producto: Partial<Producto>): Promise<any> {
-    try {
-      const response = await this.api.post('/updateProducto', {
-        id_producto: producto.id,
-        text: producto.text,
-        id_categoria: producto.id_categoria,
-        id_supermercado: producto.id_supermercado,
-        amount: producto.amount,
-        selected: producto.selected ? 1 : 0,
-        done: producto.done ? 1 : 0
-      });
-      return response.data;
-    } catch (error: unknown) {
-      console.error('Error al actualizar producto:', error);
-      throw error;
+  async login(credentials: LoginCredentials): Promise<LoginResponse> {
+    const data = await this.makeRequest('POST', '/login', credentials)
+    if (data.result && data.token) {
+      this.setToken(data.token)
     }
+    return data
+  }
+
+  async getAllData(): Promise<ApiResponse<SyncDataResponse>> {
+    return this.makeRequest('GET', '/getAll')
   }
 
   /**
-   * deleteProducto
-   * Elimina un producto de la API
-   * @param id - ID del producto a eliminar
-   * @returns Respuesta de la API
+   * Obtiene datos específicos sin sincronización automática
+   * @param fingerid ID del dispositivo
+   * @returns Datos del usuario incluyendo datos de login
+   * @requires Autenticación
    */
-  async deleteProducto(id: number): Promise<any> {
-    try {
-      const response = await this.api.post('/deleteProducto', {
-        id_producto: id
-      });
-      return response.data;
-    } catch (error: unknown) {
-      console.error('Error al eliminar producto:', error);
-      throw error;
-    }
+  async getData(fingerid: string): Promise<ApiResponse<SyncDataResponse>> {
+    return this.makeRequest('POST', '/getData', { fingerid })
   }
 
   /**
-   * updateCategoriaText
+   * Sincroniza datos entre el cliente y el servidor
+   * @param fingerid ID del dispositivo
+   * @param data Datos a sincronizar (categorías, productos y supermercados)
+   * @returns Datos actualizados del servidor
+   * @requires Autenticación
+   */
+  async syncData(fingerid: string, data: SyncData): Promise<ApiResponse<SyncDataResponse>> {
+    return this.makeRequest('POST', '/syncData', { fingerid, data })
+  }
+
+  /**
+   * Obtiene las categorías del usuario
+   * @returns Lista de categorías
+   * @requires Autenticación
+   */
+  async getCategorias(): Promise<ApiResponse> {
+    return this.makeRequest('GET', '/getCategorias')
+  }
+
+  /**
    * Actualiza el texto de una categoría
-   * @param id - ID de la categoría
-   * @param text - Nuevo texto para la categoría
-   * @returns Respuesta de la API
+   * @param id_categoria ID de la categoría
+   * @param text Nuevo texto para la categoría
+   * @returns Resultado de la operación
+   * @requires Autenticación
    */
-  async updateCategoriaText(id: number, text: string): Promise<any> {
-    try {
-      const response = await this.api.post('/updateCategoriaText', {
-        id_categoria: id,
-        text
-      });
-      return response.data;
-    } catch (error: unknown) {
-      console.error('Error al actualizar texto de categoría:', error);
-      throw error;
-    }
+  async updateCategoriaText(id_categoria: number, text: string): Promise<ApiResponse> {
+    return this.makeRequest('POST', '/updateCategoriaText', { id_categoria, text })
   }
 
   /**
-   * updateCategoriaVisible
    * Actualiza la visibilidad de una categoría
-   * @param id - ID de la categoría
-   * @param visible - Estado de visibilidad (true/false)
-   * @returns Respuesta de la API
+   * @param id_categoria ID de la categoría
+   * @param visible Estado de visibilidad (0=oculto, 1=visible)
+   * @returns Resultado de la operación
+   * @requires Autenticación
    */
-  async updateCategoriaVisible(id: number, visible: boolean): Promise<any> {
-    try {
-      const response = await this.api.post('/updateCategoriaVisible', {
-        id_categoria: id,
-        visible: visible ? 1 : 0
-      });
-      return response.data;
-    } catch (error: unknown) {
-      console.error('Error al actualizar visibilidad de categoría:', error);
-      throw error;
+  async updateCategoriaVisible(id_categoria: number, visible: number): Promise<ApiResponse> {
+    return this.makeRequest('POST', '/updateCategoriaVisible', { id_categoria, visible })
+  }
+
+   /**
+   * Actualiza la visibilidad de un supermercado
+   * @param id_supermercado ID del supermercado
+   * @param visible Estado de visibilidad (0=oculto, 1=visible)
+   * @returns Resultado de la operación
+   * @requires Autenticación
+   */
+    async updateSupermarketVisible(id_supermercado: number, visible: number): Promise<ApiResponse> {
+      return this.makeRequest('POST', '/updateSupermercadoVisible', { id_supermercado, visible })
+    }
+
+   /**
+   * Actualiza el orden de un supermercado
+   * @param id_supermercado ID del supermercado
+   * @param order Orden del supermercado
+   * @returns Resultado de la operación
+   * @requires Autenticación
+   */
+      async updateSupermarketOrder(id_supermercado: number, order: number): Promise<ApiResponse> {
+      return this.makeRequest('POST', '/updateSupermercadoOrder', { id_supermercado, order })
+    }
+
+  /**
+   * Crea un nuevo producto
+   * @param data Datos del producto (categoría, supermercado, texto, cantidad opcional)
+   * @returns ID del nuevo producto si se crea correctamente
+   * @requires Autenticación
+   */
+  async newProducto(data: {
+    id_categoria: number
+    id_supermercado: number
+    text: string
+    amount?: number
+  }): Promise<ApiResponse> {
+    return this.makeRequest('POST', '/newProducto', data)
+  }
+  /**
+   * Crea un nuevo supermercado
+   * @param data Datos del supermercado (id, orden)
+   * @returns Resultado de la operación
+   * @requires Autenticación
+   */
+  async newSupermarket(data: {
+    id: number
+    order: number
+  }): Promise<ApiResponse> {
+    return this.makeRequest('POST', '/newSupermarket', data)
+  }
+
+  /**
+   * Actualiza un producto existente
+   * @param data Datos a actualizar del producto
+   * @returns Resultado de la operación
+   * @requires Autenticación
+   */
+  async updateProducto(data: {
+    id_producto: number
+    id_categoria?: number
+    id_supermercado?: number
+    text?: string
+    amount?: number
+    selected?: number
+    done?: number
+  }): Promise<ApiResponse> {
+    return this.makeRequest('POST', '/updateProducto', data)
+  }
+
+  /**
+   * Actualiza la cantidad de un producto
+   * @param id_producto ID del producto
+   * @param amount Nueva cantidad
+   * @returns Resultado de la operación
+   * @requires Autenticación
+   */
+  async updateProductoAmount(id_producto: number, amount: number): Promise<ApiResponse> {
+    return this.makeRequest('POST', '/updateProductoAmount', { id_producto, amount })
+  }
+
+  /**
+   * Actualiza el estado done de un producto
+   * @param id_producto ID del producto
+   * @param done Nuevo estado done
+   * @returns Resultado de la operación
+   * @requires Autenticación
+   */
+  async updateProductoDone(id_producto: number, done: number): Promise<ApiResponse> {
+    return this.makeRequest('POST', '/updateProductoDone', { id_producto, done })
+  }
+  /**
+   * Actualiza el estado selected de un producto
+   * @param id_producto ID del producto
+   * @param selected Nuevo estado selected
+   * @returns Resultado de la operación
+   * @requires Autenticación
+   */
+  async updateProductoSelected(id_producto: number, selected: number): Promise<ApiResponse> {
+    return this.makeRequest('POST', '/updateProductoSelected', { id_producto, selected })
+  }
+
+  /**
+   * Actualiza el nombre de un producto
+   * @param id_producto ID del producto
+   * @param text Nuevo nombre del producto
+   * @returns Resultado de la operación
+   * @requires Autenticación
+   */
+  async updateProductoText(id_producto: number, text: string): Promise<ApiResponse> {
+    return this.makeRequest('POST', '/updateProductoText', { id_producto, text });
+  }
+
+  /**
+   * Elimina un producto
+   * @param id_producto ID del producto a eliminar
+   * @returns Resultado de la operación
+   * @requires Autenticación
+   */
+   async deleteProducto(id_producto: number): Promise<ApiResponse> {
+     return this.makeRequest('POST', '/deleteProducto', { id_producto });
+   }
+
+  /**
+   * Procesa una acción de sincronización
+   * @param action Acción de sincronización a procesar
+   * @returns Resultado de la operación
+   */
+  private async processSyncAction(action: SyncAction): Promise<ApiResponse> {
+    switch (action.type) {
+      case SyncActionType.NEW_PRODUCT:
+        const newProductPayload = action.payload as Producto; // Assert payload type
+        return this.newProducto({
+          id_categoria: newProductPayload.id_categoria,
+          id_supermercado: newProductPayload.id_supermercado,
+          text: newProductPayload.text,
+          amount: newProductPayload.amount
+        });
+      case SyncActionType.DELETE_PRODUCT:
+        return this.deleteProducto(action.payload.id);
+      case SyncActionType.UPDATE_PRODUCT:
+        const updateProductPayload = action.payload as Partial<Producto> & { id: number }; // Assert payload type, ensure id is present
+        return this.updateProducto({
+          id_producto: updateProductPayload.id, // id_producto is the expected field name for this.updateProducto
+          id_categoria: updateProductPayload.id_categoria,
+          id_supermercado: updateProductPayload.id_supermercado,
+          text: updateProductPayload.text,
+          amount: updateProductPayload.amount,
+          selected: typeof updateProductPayload.selected === 'boolean' ? (updateProductPayload.selected ? 1 : 0) : undefined,
+          done: typeof updateProductPayload.done === 'boolean' ? (updateProductPayload.done ? 1 : 0) : undefined
+        });
+      case SyncActionType.UPDATE_PRODUCT_AMOUNT:
+        return this.updateProductoAmount(
+          action.payload.id,
+          action.payload.amount
+        );
+      case SyncActionType.UPDATE_PRODUCT_DONE:
+        return this.updateProductoDone(
+          action.payload.id,
+          action.payload.done ? 1 : 0
+        );
+      case SyncActionType.UPDATE_PRODUCT_SELECTED:
+        return this.updateProductoSelected(
+          action.payload.id,
+          action.payload.selected ? 1 : 0
+        );
+      case SyncActionType.UPDATE_PRODUCT_TEXT:
+        return this.updateProductoText(
+          action.payload.id,
+          action.payload.text
+        );
+      case SyncActionType.UPDATE_CATEGORY_TEXT:
+        return this.updateCategoriaText(
+          action.payload.id,
+          action.payload.text
+        );
+      case SyncActionType.UPDATE_CATEGORY_VISIBLE:
+        return this.updateCategoriaVisible(
+          action.payload.id,
+          action.payload.visible ? 1 : 0
+        );
+      case SyncActionType.NEW_SUPERMARKET:
+        return this.newSupermarket({
+          id: action.payload.id,
+          order: action.payload.order
+        });
+      case SyncActionType.UPDATE_SUPERMARKET_ORDER:
+        return this.updateSupermarketOrder(
+          action.payload.id,
+          action.payload.order
+        );
+      case SyncActionType.UPDATE_SUPERMARKET_VISIBLE:
+        return this.updateSupermarketVisible(
+          action.payload.id,
+          action.payload.visible ? 1 : 0
+        );
+      default:
+        throw new Error(`Tipo de acción no soportada: ${action.type}`);
     }
   }
 
   /**
-   * setSupermercadosOcultos
-   * Establece los supermercados ocultos para el usuario
-   * @param ids - Array de IDs de supermercados a ocultar
-   * @returns Respuesta de la API
+   * Añade una acción de sincronización a la cola
+   * @param action Acción de sincronización a añadir
    */
-  async setSupermercadosOcultos(ids: number[]): Promise<any> {
-    try {
-      const response = await this.api.post('/setSupermercadosOcultos', {
-        supermercados_ocultos: ids
+  addToSyncQueue(action: SyncAction) {
+    if (!this.isOnline) {
+      const queueItem: QueueItem = {
+        id: Math.random().toString(36).substring(7),
+        method: 'POST',
+        url: '/sync',
+        data: action,
+        timestamp: Date.now(),
+        type: action.type
+      };
+      this.processQueue.push(queueItem);
+      this.saveQueue();
+    } else {
+      this.processSyncAction(action).catch(() => {
+        const queueItem: QueueItem = {
+          id: Math.random().toString(36).substring(7),
+          method: 'POST',
+          url: '/sync',
+          data: action,
+          timestamp: Date.now(),
+          type: action.type
+        };
+        this.processQueue.push(queueItem);
+        this.saveQueue();
       });
-      return response.data;
-    } catch (error: unknown) {
-      console.error('Error al establecer supermercados ocultos:', error);
-      throw error;
     }
   }
 
   /**
-   * syncData
-   * Sincroniza los datos del usuario con el servidor
-   * @param email - Correo electrónico del usuario
-   * @param token - Token de autenticación
-   * @param fingerID - ID de huella digital del dispositivo
-   * @param data - Datos a sincronizar
-   * @returns Respuesta de la API con los datos sincronizados
+   * Obtiene el estado actual de la cola de procesos
    */
-  async syncData(email: string, token: string, fingerID: string, data: Record<string, unknown>): Promise<any> {
-    try {
-      const response = await this.api.post('/syncData', {
-        email,
-        token,
-        fingerID,
-        data
-      });
-      return response.data;
-    } catch (error: unknown) {
-      console.error('Error en sincronización:', error);
-      throw error;
+  getQueueStatus() {
+    return {
+      isOnline: this.isOnline,
+      pendingItems: this.processQueue.length,
+      queue: this.processQueue
+    }
+  }
+
+  /**
+   * Fuerza el procesamiento de la cola
+   */
+  async forceProcessQueue() {
+    if (this.isOnline) {
+      await this.processQueuedItems()
     }
   }
 }
 
-// Exportar una instancia única del servicio
-export const apiService = new ApiService();
+// En lugar de exportar una instancia directamente, creamos una función que devuelve la instancia
+// Esto evita que useRuntimeConfig() se llame durante la carga del módulo
+let apiServiceInstance: ApiService | null = null;
+
+export default function getApiService(): ApiService {
+  if (!apiServiceInstance) {
+    apiServiceInstance = new ApiService();
+  }
+  return apiServiceInstance;
+}

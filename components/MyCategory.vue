@@ -1,56 +1,70 @@
 <template>
-    <div class="my-category-container" :class="{ 'selected': isActive }">
-      <div class="my-category" :style="{ backgroundColor: bgColor }"
-        @click="handleClick"
-        @pointerdown="handlePointerDown"
-        @pointerup="handlePointerUp">
-        <p class="category-title" :class="{active: isActive}" v-html="text.replaceAll('/','<br />')"/>
-      </div>
+  <div class="my-category-container" :class="{ 'selected': isActive }">
+    <div class="my-category" :style="{ '--color': bgColor }"
+      @click="handleClick"
+      @pointerdown="handlePointerDown"
+      @pointerup="handlePointerUp">
+      <p class="category-title" :class="{active: isActive}" v-html="text.replaceAll('/','<br />')"/>
     </div>
-  </template>
+  </div>
+</template>
 
-  <script lang="ts" setup>
-    import { ref, watch } from 'vue';
-    import '~/css/components/MyCategory.css';
+<script lang="ts" setup>
+  import { ref, watch } from 'vue';
+  import '~/css/components/MyCategory.css';
+  import { useTouch } from '~/composables/useTouch';
 
-    interface Props {
-      text:             string;
-      bgColor:          string;
-      isActive:         boolean;
-      longClickTimeout: number;
+  interface Props {
+    text:             string;
+    bgColor:          string;
+    isActive:         boolean;
+    longClickTimeout: number;
+  }
+  const props: Props = defineProps({
+    text:             { type: String,   default: ""           },
+    bgColor:          { type: String,   default: 'lightgray'  },
+    isActive:         { type: Boolean,  default: false        },
+    longClickTimeout: { type: Number,   default: 2000         },
+  });
+
+  const emit            = defineEmits(['categoryClick','categoryLongClick']);
+  const esActivo        = ref(props.isActive);
+
+  const { handleTouchStart, handleTouchEnd, isLongPress } = useTouch({
+    longPressDelay: props.longClickTimeout
+  });
+
+  const handleClick     = () => {
+    if (!isLongPress.value) {
+      emit('categoryClick');
     }
-    const props: Props = defineProps({
-      text:             { type: String,   default: ""           },
-      bgColor:          { type: String,   default: 'lightgray'  },
-      isActive:         { type: Boolean,  default: false        },
-      longClickTimeout: { type: Number,   default: 2000         },
-    });
+  };
 
-    let longPressTimeout: ReturnType<typeof setTimeout> | null = null;
-    let wasLongClick: boolean = false;
-    const esActivo        = ref(props.isActive)
-    const emit            = defineEmits(['categoryClick','categoryLongClick']);
-    const handleClick     = () => {
-      if (!wasLongClick) {
-        emit('categoryClick');
-      }
-      wasLongClick = false; // Reset for next click
-    };
-    const handlePointerDown = (event: PointerEvent) => {
-      wasLongClick = false;
-      if (event.pointerType === 'touch') {
-        event.preventDefault(); // Prevent scrolling on touch devices
-      }
-      esActivo.value ? longPressTimeout = setTimeout(() => {
-        wasLongClick = true;
-        emit('categoryLongClick');
-      }, props.longClickTimeout) : undefined;
-    };
-    const handlePointerUp   = (event: PointerEvent) => {
-      if (esActivo.value && longPressTimeout) {
-        clearTimeout(longPressTimeout);
-      }
-    };
-    watch(()=>props.isActive,newValue=>{esActivo.value=newValue; (!newValue && longPressTimeout && clearTimeout(longPressTimeout))})
-  </script>
+  const handlePointerDown = (event: PointerEvent) => {
+    if (event.pointerType === 'touch') {
+      event.preventDefault();
+      handleTouchStart(event as unknown as TouchEvent, {
+        onLongPress: () => {
+          if (esActivo.value) {
+            emit('categoryLongClick');
+          }
+        }
+      });
+    }
+  };
 
+  const handlePointerUp   = (event: PointerEvent) => {
+    if (event.pointerType === 'touch') {
+      handleTouchEnd(event as unknown as TouchEvent);
+    }
+  };
+
+  watch(()=>props.isActive, newValue => {
+    esActivo.value = newValue;
+  });
+</script>
+<style scoped>
+  .my-category{
+    background-color: var(--color);
+  }
+</style>
