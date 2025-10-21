@@ -1,17 +1,8 @@
 import { ref, computed, watch } from "vue";
-import type { Ref, ComputedRef } from "vue";
 import type { Producto } from "~/types";
 import { normalizeText } from "~/utils/text";
 
-export function useProductFilter(getProducts: () => Producto[]): {
-  showFinder: Ref<boolean>;
-  idInput: string;
-  finder: Ref<string>;
-  filteredProducts: ComputedRef<Producto[]>;
-  toggleFinder: () => void;
-  handleUpdateValue: (value: string) => void;
-  updateFilter: () => void;
-} {
+export function useProductFilter(getProducts: () => Producto[]) {
   const showFinder = ref(false);
   const idInput = "finder";
   const finder = ref("");

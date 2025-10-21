@@ -1,22 +1,9 @@
 import { computed } from "vue";
-import type { ComputedRef, Ref } from "vue";
 import type { Producto } from "~/types";
 import { myStore } from "~/composables/useStore";
 import { useProductFilter } from "~/composables/useProductFilter";
 
-export function useProductList(orderType: 'a2z' | 'category' = 'a2z'): {
-  store: ReturnType<typeof myStore>;
-  showFinder: Ref<boolean>;
-  idInput: string;
-  finder: Ref<string>;
-  filteredProducts: ComputedRef<Producto[]>;
-  selectedProductsCount: ComputedRef<number>;
-  toggleFinder: () => void;
-  handleUpdateValue: (value: string) => void;
-  handleUpdateSelected: (product: Producto) => void;
-  handleUpdateAmount: (product: Producto, value: number) => void;
-  pluralize: (n: number) => string;
-} {
+export function useProductList(orderType: 'a2z' | 'category' = 'a2z') {
   const store = myStore();
 
   // Obtener los productos ordenados según el tipo de ordenación

@@ -1,6 +1,6 @@
 import { myStore } from '~/composables/useStore';
 import { showErrorSwal as showError, showLoading, showSuccess, closeSwal, showSyncConfirm, showSyncSuccess } from '~/utils/sweetalert';
-import type { ImportData, Producto, Categoria, Supermercado } from '~/types';
+import type { ImportData } from '~/types';
 
 /**
  * handleLastCheckedDeletionAttempt
@@ -36,14 +36,14 @@ export const handleSync = async (
     };
   },
   syncWithServer: () => Promise<boolean>
-): Promise<boolean> => {
+): Promise<void> => {
   // Verificar si el usuario está autenticado
   if (!store.loginData.value.logged) {
     showError(
       'Error',
       "Debes iniciar sesión para sincronizar datos"
     );
-    return false;
+    return;
   }
 
   // Mostrar diálogo de carga
@@ -68,7 +68,7 @@ export const handleSync = async (
         'Sincronización completada',
         'Tus datos ya están sincronizados con el servidor'
       );
-      return true;
+      return;
     }
 
     // Si hay diferencias, mostrar diálogo para que el usuario decida
@@ -91,13 +91,11 @@ export const handleSync = async (
           'Sincronizado',
           'Tus datos se han enviado al servidor correctamente'
         );
-        return true;
       } else {
         showError(
           'Error',
           'No se pudieron sincronizar los datos con el servidor'
         );
-        return false;
       }
     } else if (result.isDenied) {
       // Usar datos del servidor
@@ -106,9 +104,7 @@ export const handleSync = async (
         'Sincronizado',
         'Se han cargado los datos del servidor'
       );
-      return true;
     }
-    return false;
   } catch (error) {
     console.error('Error en sincronización:', error);
     closeSwal();
@@ -116,49 +112,5 @@ export const handleSync = async (
       'Error de sincronización',
       'Ocurrió un error al obtener los datos del servidor. Inténtalo de nuevo más tarde.'
     );
-    return false;
   }
-};
-
-export const compareData = (serverData: ImportData) => {
-  const store = myStore();
-  const localData = store.exportData();
-
-  // Función para comparar timestamps
-  const isNewer = (a: string, b: string) => new Date(a) > new Date(b);
-
-  const compareItems = <T extends { id: number; timestamp?: string }>(local: T[], server: T[]) => {
-    const conflicts = server.filter(sItem => {
-      const lItem = local.find(l => l.id === sItem.id);
-      return lItem && lItem.timestamp && sItem.timestamp &&
-             lItem.timestamp !== sItem.timestamp;
-    });
-
-    return {
-      count: server.length,
-      conflicts: conflicts.length,
-      newer: conflicts.some(sItem => {
-        const lItem = local.find(l => l.id === sItem.id);
-        return lItem && sItem.timestamp && lItem.timestamp &&
-               isNewer(sItem.timestamp, lItem.timestamp);
-      })
-    };
-  };
-
-  const productosComp = compareItems<Producto>(localData.productos || [], serverData.productos || []);
-  const categoriasComp = compareItems<Categoria>(localData.categorias || [], serverData.categorias || []);
-  const supermercadosComp = compareItems<Supermercado>(localData.supermercados || [], serverData.supermercados || []);
-
-  const serverNewer = productosComp.newer || categoriasComp.newer || supermercadosComp.newer;
-  const hasConflicts = productosComp.conflicts > 0 || categoriasComp.conflicts > 0 || supermercadosComp.conflicts > 0;
-
-  return {
-    hasChanges: hasConflicts,
-    serverNewer,
-    differences: {
-      productos: { local: localData.productos.length, server: productosComp.count, conflicts: productosComp.conflicts },
-      categorias: { local: localData.categorias.length, server: categoriasComp.count, conflicts: categoriasComp.conflicts },
-      supermercados: { local: localData.supermercados.length, server: supermercadosComp.count, conflicts: supermercadosComp.conflicts }
-    }
-  };
 };

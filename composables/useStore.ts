@@ -1,17 +1,13 @@
-import type { Producto, Categoria, LoginData, Supermercado, ImportData, Tab, SyncData, SyncDataResponse } from '~/types';
-import { localStorageService } from '~/services/localStorageService'; // Import the localStorageService
-import getApiService from '~/services/apiService'
-import { SyncActionType, type SyncAction, type QueueItem } from '~/types/sync/sync'
+import type { Producto, Categoria, LoginData, Supermercado, ImportData, Tab } from '~/types';
+import { localStorageService } from '~/localStorageService'; // Import the localStorageService
 
 export const myStore = () => {
-  const apiService = getApiService();
-  let syncIntervalId: ReturnType<typeof setInterval> | null = null;
   const tabs: Tab[] = [
-    { id: 0, text: 'Configuración',          page: 'config',      logo: 'config.svg',        selectable: false,  },
-    { id: 1, text: 'Añadir Productos',       page: 'add',         logo: 'add.svg',           selectable: true,   },
-    { id: 2, text: 'Por orden alfabético',   page: 'a2z',         logo: 'a2z.svg',           selectable: true,   },
-    { id: 3, text: 'Por categoría',          page: 'categorias',  logo: 'categorias.svg',    selectable: true,   },
-    { id: 4, text: 'Lista de la compra',     page: 'cart',        logo: 'cart.svg',          selectable: true,   },
+    { id: 0, text: 'Configuración',          page: 'config', logo: 'config.svg',        selectable: false,  },
+    { id: 1, text: 'Añadir Productos',       page: 'add',    logo: 'add.svg',           selectable: true,   },
+    { id: 2, text: 'Por orden alfabético',   page: 'a2z',    logo: 'a2z.svg',           selectable: true,   },
+    { id: 3, text: 'Por categoría',          page: 'categorias', logo: 'categorias.svg',    selectable: true,   },
+    { id: 4, text: 'Lista de la compra',     page: 'cart',   logo: 'cart.svg',          selectable: true,   },
   ];
   const bgColors = [
     "#d83c3d", "#d8993c", "#b9d83c", "#5bd83c", "#3dd87a", "#47ffff",
@@ -32,18 +28,18 @@ export const myStore = () => {
   const loginData = useState<LoginData>('loginData', () => ({ email: '', token: '', fingerID: '', logged: false }));
   const categorias = useState<Categoria[]>('categorias', () => Array.from({ length: 20 }, (_, i) => ({
     id: i,
-    text: `Categoría ${String(i+1).padStart(2, '0')}`,
+    text: `Categoría ${String(i).padStart(2, '0')}`,
     bgColor: bgColors[i],
     visible: true,
     timestamp: "0000-00-00 00:00:00" // Cambiado a string para manejar formato YYYY-MM-DD HH:MM:SS
   })));
 
-  const epochTime = "1980-05-21 16:25:00";
+  const birthday = "1980-05-21 16:25:00";
   const now= computed(() => new Date().toLocaleString('sv-SE').replace('T', ' '))
 
-  const findProducto      = (id: number) => productos.value.find(p => p.id === id);
-  const findSupermercado  = (id: number) => supermercados.value.find(m => m.id === id);
-  const findCategoria     = (id: number) => categorias.value.find(c => c.id === id);
+  const findProducto = (id: number) => productos.value.find(p => p.id === id);
+  const findSupermercado = (id: number) => supermercados.value.find(m => m.id === id);
+  const findCategoria = (id: number) => categorias.value.find(c => c.id === id);
 
   /**
    * sortSupermercadosByOrder
@@ -108,7 +104,7 @@ export const myStore = () => {
           //si alguna de las categorias importadas no tiene timestamp, se lo añadimos con el valor defalt a dicha categoría
           data.categorias.forEach((categoria: Categoria) => {
             if (!categoria.timestamp) {
-              categoria.timestamp = epochTime;
+              categoria.timestamp = birthday;
             }
           });
 
@@ -118,7 +114,7 @@ export const myStore = () => {
           //si algun supermercado importado no tiene timestamp, se lo añadimos con el valor defalt a dicho supermercado
           data.supermercados.forEach((supermercado: Supermercado) => {
             if (!supermercado.timestamp) {
-              supermercado.timestamp = epochTime;
+              supermercado.timestamp = birthday;
             }
           });
 
@@ -130,7 +126,7 @@ export const myStore = () => {
         //si algun producto importado no tiene timestamp, se lo añadimos con el valor defalt a dicho producto
         data.productos.forEach((producto: Producto) => {
           if (!producto.timestamp) {
-            producto.timestamp = epochTime;
+            producto.timestamp = birthday;
           }
         });
         // Usar updateProductos en lugar de asignar directamente
@@ -209,7 +205,7 @@ export const myStore = () => {
           typeof s.visible === 'boolean'
         );
         if (validSupermercados.length === storedSupermercados.length) {
-          supermercados.value = validSupermercados;
+          supermercados.value = storedSupermercados;
           // Ordenar los supermercados por la propiedad 'order'
           sortSupermercadosByOrder();
         } else {
@@ -270,14 +266,9 @@ export const myStore = () => {
     }
   };
 
-  const updateLoginData = (newData: Partial<LoginData>) => {
-    Object.assign(loginData.value, newData);
-    saveDataToLocalStorage();
-  };
-
-  const saveDataToLocalStorage = (ignoreSort:boolean=false) => {
+  const saveDataToLocalStorage = () => {
     // Ordenar los supermercados por la propiedad 'order' antes de guardarlos
-    if (!ignoreSort) sortSupermercadosByOrder();
+    sortSupermercadosByOrder();
 
     localStorageService.setSubItem('productos', productos.value);
     localStorageService.setSubItem('supermercados', supermercados.value);
@@ -299,11 +290,6 @@ export const myStore = () => {
       amount: 1
     };
     productos.value.push(newItem);
-    apiService.addToSyncQueue({
-      type: SyncActionType.NEW_PRODUCT,
-      payload: newItem,
-      timestamp: Date.now()
-    });
     saveDataToLocalStorage();
   };
 
@@ -316,13 +302,6 @@ export const myStore = () => {
     const producto = findProducto(id);
     if (producto) {
       Object.assign(producto, newData);
-      if (loginData.value.logged) {
-        apiService.addToSyncQueue({
-          type: SyncActionType.UPDATE_PRODUCT,
-          payload: newData,
-          timestamp: Date.now()
-        });
-      }
       saveDataToLocalStorage();
     }
   };
@@ -331,33 +310,13 @@ export const myStore = () => {
     const categoria = findCategoria(id);
     if (categoria) {
       categoria.text = newText;
-      apiService.addToSyncQueue({
-        type: SyncActionType.UPDATE_CATEGORY_TEXT,
-        payload: {
-            id_categoria:id,
-            text: newText
-        },
-        timestamp: Date.now()
-      });
       saveDataToLocalStorage();
     }
   };
 
   const updateCategorias = (visibleCategoriaIds: number[]) => {
     categorias.value.forEach(categoria => {
-      const wasVisible= categoria.visible;
-      const newVisible= visibleCategoriaIds.includes(categoria.id);
-      if (loginData.value.logged && wasVisible != newVisible){
-        apiService.addToSyncQueue({
-          type: SyncActionType.UPDATE_CATEGORY_VISIBLE,
-          payload: {
-              id_categoria:categoria.id,
-              visible:newVisible
-          },
-          timestamp: Date.now()
-        });
-        categoria.visible = newVisible;
-      }
+      categoria.visible = visibleCategoriaIds.includes(categoria.id);
     });
     saveDataToLocalStorage();
   };
@@ -366,14 +325,6 @@ export const myStore = () => {
     const categoria = findCategoria(id);
     if (categoria) {
       categoria.visible = visible;
-      apiService.addToSyncQueue({
-        type: SyncActionType.UPDATE_CATEGORY_VISIBLE,
-        payload: {
-            id_categoria:id,
-            visible: visible ? 1 : 0
-        },
-        timestamp: Date.now()
-      });
       saveDataToLocalStorage();
     }
   };
@@ -382,14 +333,6 @@ export const myStore = () => {
     const producto = findProducto(id);
     if (producto) {
       producto.amount = amount;
-      apiService.addToSyncQueue({
-        type: SyncActionType.UPDATE_PRODUCT_AMOUNT,
-        payload: {
-          id,
-          amount
-        },
-        timestamp: Date.now()
-      });
       saveDataToLocalStorage();
     }
   };
@@ -403,13 +346,15 @@ export const myStore = () => {
         const index = newProductos.findIndex(p => p.id === id);
         if (index !== -1) {
           const newSelected = !newProductos[index].selected;
-          const timestamp = new Date().toLocaleString('sv-SE').replace('T', ' ');
 
+          // Si estamos seleccionando el producto (selected cambia a true),
+          // también marcamos done como false para evitar que aparezca como comprado
           newProductos[index] = {
             ...newProductos[index],
             selected: newSelected,
+            // Si se está seleccionando, asegurarse de que done sea false
             done: newSelected ? false : newProductos[index].done,
-            timestamp
+            timestamp: now.value
           };
 
           // Actualizar todos los productos usando la función centralizada
@@ -419,67 +364,22 @@ export const myStore = () => {
   };
 
   const toggleDone = (id: number) => {
-    const producto = findProducto(id);
-    if (producto) {
-      producto.done = !producto.done;
-      apiService.addToSyncQueue({
-        type: SyncActionType.UPDATE_PRODUCT_DONE,
-        payload: {
-          id,
-          done: producto.done
-        },
-        timestamp: Date.now()
-      });
-      saveDataToLocalStorage();
-    }
-  };
-
-  const updateProductText = (id: number, text: string) => {
-    const producto = findProducto(id);
-    if (producto) {
-      producto.text = text;
-      apiService.addToSyncQueue({
-        type: SyncActionType.UPDATE_PRODUCT_TEXT,
-        payload: {
-          id,
-          text
-        },
-        timestamp: Date.now()
-      });
-      saveDataToLocalStorage();
-    }
-  };
-
-  const updateCategoryText = (id: number, text: string) => {
-    const categoria = findCategoria(id);
-    if (categoria) {
-      categoria.text = text;
-      apiService.addToSyncQueue({
-        type: SyncActionType.UPDATE_CATEGORY_TEXT,
-        payload: {
-          id,
-          text
-        },
-        timestamp: Date.now()
-      });
-      saveDataToLocalStorage();
-    }
-  };
-
-  const updateCategoryVisible = (id: number, visible: boolean) => {
-    const categoria = findCategoria(id);
-    if (categoria) {
-      categoria.visible = visible;
-      apiService.addToSyncQueue({
-        type: SyncActionType.UPDATE_CATEGORY_VISIBLE,
-        payload: {
-          id,
-          visible
-        },
-        timestamp: Date.now()
-      });
-      saveDataToLocalStorage();
-    }
+      const producto = findProducto(id);
+      if (producto) {
+        // Crear una copia de todos los productos
+        const newProductos = [...productos.value];
+        // Encontrar el producto en la copia y actualizarlo
+        const index = newProductos.findIndex(p => p.id === id);
+        if (index !== -1) {
+          newProductos[index] = {
+            ...newProductos[index],
+            done: !newProductos[index].done,
+            timestamp: now.value
+          };
+          // Actualizar todos los productos usando la función centralizada
+          updateProductos(newProductos);
+        }
+      }
   };
 
   const setEmail = (email: string) => {
@@ -539,75 +439,29 @@ export const myStore = () => {
 
   const clearList = (onlyDone: boolean) => {
     productos.value.forEach(p => {
-
       if ((onlyDone && p.done) || (!onlyDone && p.selected)) {
         p.selected = false;
-        apiService.addToSyncQueue({
-          type: SyncActionType.UPDATE_PRODUCT_SELECTED,
-          payload: {
-              id:p.id,
-              selected: 0
-          },
-          timestamp: Date.now()
-        });
         p.done = false;
-        apiService.addToSyncQueue({
-          type: SyncActionType.UPDATE_PRODUCT_DONE,
-          payload: {
-              id:p.id,
-              done: 0
-          },
-          timestamp: Date.now()
-        });
       }
     });
     saveDataToLocalStorage();
   };
 
-  /**
-   * TODO:
-   *  - Implementar esta funcionabilidad tanto en el backend como en el frontend.
-   *   - Needs:
-   *    - Obtener supermercados nuevos no asociados al usario actual.
-   *    - Selección de nuevos supermercados por parte del usuario. (NEW_COMPONENT??)
-   *   - Sincronización de los nuevos supermercados con el servidor.
-   */
-   /**
-   * addMarket
-   * Agrega un nuevo supermercado al almacenamiento local y lo muestra en la interfaz de usuario.
-   *
-   * @param market Objeto Supermercado que contiene información sobre el nuevo supermercado.
-   */
   const addMarket = (market: Supermercado) => {
     const maxOrder = supermercados.value.length;
     supermercados.value.push({ ...market, order: maxOrder });
-    apiService.addToSyncQueue({
-      type: SyncActionType.NEW_SUPERMARKET,
-      payload: {
-        id:market.id,
-        order: maxOrder
-      },
-      timestamp: Date.now()
-    });
+
     // Ordenar los supermercados por la propiedad 'order'
+    sortSupermercadosByOrder();
+
     saveDataToLocalStorage();
   };
 
-  const setMarketVisible = (id: number, visible: boolean, save:boolean=true) => {
-    const index = supermercados.value.findIndex(market => market.id === id);
-    if (index<0) return;
-    else{
-      supermercados.value[index].visible = visible;
-      // Ordenar los supermercados por la propiedad 'order'
-      apiService.addToSyncQueue({
-        type: SyncActionType.UPDATE_SUPERMARKET_VISIBLE,
-        payload: {
-          id,
-          visible: visible ? 1:0
-        },
-        timestamp: Date.now()
-      });
-      if (save) saveDataToLocalStorage();
+  const setMarketVisible = (id: number, visible: boolean) => {
+    const market = findSupermercado(id);
+    if (market) {
+      market.visible = visible;
+      saveDataToLocalStorage();
     }
   };
 
@@ -619,12 +473,13 @@ export const myStore = () => {
   const updateSupermercados = (visibleSupermercadoIds: number[]) => {
     // Actualizar la visibilidad de los supermercados
     supermercados.value.forEach(supermercado => {
-      const wasVisible = supermercado.visible;
-      const newVisible = visibleSupermercadoIds.includes(supermercado.id);
-      if (wasVisible !== newVisible){
-        setMarketVisible(supermercado.id, newVisible,false);
-      }
+      supermercado.visible = visibleSupermercadoIds.includes(supermercado.id);
     });
+
+    // Ordenar los supermercados por la propiedad 'order'
+    sortSupermercadosByOrder();
+
+    // Guardar en localStorage
     saveDataToLocalStorage();
   };
 
@@ -638,17 +493,10 @@ export const myStore = () => {
 
     const targetMarket = supermercados.value[swapIndex];
     [currentMarket.order, targetMarket.order] = [targetMarket.order, currentMarket.order];
-    [currentMarket, targetMarket].forEach(market=>{
-      apiService.addToSyncQueue({
-        type: SyncActionType.UPDATE_SUPERMARKET_ORDER,
-        payload: {
-          id: market.id,
-          order: market.order
-        },
-        timestamp: Date.now()
-      });
 
-    })
+    // Ordenar los supermercados por la propiedad 'order'
+    sortSupermercadosByOrder();
+
     saveDataToLocalStorage();
   };
 
@@ -662,20 +510,14 @@ export const myStore = () => {
     newSupermercados.forEach((item, index) => {
       if (item.id !== 0) { // No cambiar el orden del supermercado genérico (id=0)
         item.order = index;
-        apiService.addToSyncQueue({
-          type: SyncActionType.UPDATE_SUPERMARKET_ORDER,
-          payload: {
-            id:item.id,
-            order:index
-          },
-          timestamp: Date.now()
-        });
       }
     });
+
     // Actualizar el array de supermercados en el store
     supermercados.value = [...newSupermercados];
+
     // Guardar en localStorage
-    saveDataToLocalStorage(true);
+    saveDataToLocalStorage();
   };
 
   const fullScreen = useState<boolean>('fullscreen', () => false);
@@ -696,11 +538,7 @@ export const myStore = () => {
   };
 
   const appName = useState<string>('appName', () => 'Hungry!');
-  // Inicializar defaultTabActive con el valor del localStorage o 2 como respaldo
-  const defaultTabActive = useState<number>('defaultTabActive', () => {
-    const storedValue = localStorageService.getSubItem('defaultTabActive');
-    return storedValue !== null ? storedValue : 2;
-  });
+  const defaultTabActive = useState<number>('defaultTabActive', () => 2);
   const setDefaultTabActive = (tabIndex: number) => {
     defaultTabActive.value = tabIndex;
     saveDataToLocalStorage();
@@ -729,7 +567,7 @@ export const myStore = () => {
     // Restablecer categorías a los valores por defecto
     categorias.value = Array.from({ length: 20 }, (_, i) => ({
       id: i,
-      text: `Categoría ${String(i+1).padStart(2, '0')}`,
+      text: `Categoría ${String(i).padStart(2, '0')}`,
       bgColor: bgColors[i],
       visible: true
     }));
@@ -756,161 +594,13 @@ export const myStore = () => {
   // Asegurarse de que los supermercados estén ordenados al iniciar la aplicación
   sortSupermercadosByOrder();
 
-  // Procesar cola cuando cambia el estado de login
-  watch(() => loginData.value.logged, async (newValue) => {
-    if (newValue) {
-      apiService.forceProcessQueue();
-      await periodicSyncWithAPI(); // Initial sync
-      if (syncIntervalId) clearInterval(syncIntervalId);
-      syncIntervalId = setInterval(periodicSyncWithAPI, 30000); // Periodic sync every 30 seconds
-    } else {
-      if (syncIntervalId) clearInterval(syncIntervalId);
-      syncIntervalId = null;
-    }
-  });
-
-  const periodicSyncWithAPI = async () => {
-    if (!loginData.value.logged || !navigator.onLine) {
-      return;
-    }
-    console.log("Attempting periodic sync...");
-    try {
-      const syncPayload: SyncData = {
-        productos: productos.value,
-        categorias: categorias.value,
-        supermercados: supermercados.value,
-        lastChangeTimestamp: lastSyncTimestamp.value || new Date(epochTime).getTime(),
-      };
-      const response = await apiService.syncData(loginData.value.fingerID, syncPayload);
-      
-      if (response.result && response.data) {
-        console.log("Periodic sync successful, merging data:", response.data);
-        await mergeSyncData(response.data); // Call mergeSyncData
-        lastSyncTimestamp.value = Date.now();
-        saveDataToLocalStorage(); // Save after successful merge
-      } else {
-        console.log("Periodic sync completed, but no data to merge or result was false:", response);
-        // Update lastSyncTimestamp even if there's no data to merge but the call was successful
-        if (response.result) {
-            lastSyncTimestamp.value = Date.now();
-            saveDataToLocalStorage();
-        }
-      }
-    } catch (error) {
-      console.error("Error during periodic sync:", error);
-    }
-  };
-
-  const isServerNewer = (serverTimestamp?: string, localTimestamp?: string): boolean => {
-    const serverTime = serverTimestamp ? new Date(serverTimestamp).getTime() : new Date(epochTime).getTime();
-    const localTime = localTimestamp ? new Date(localTimestamp).getTime() : new Date(epochTime).getTime();
-    return serverTime > localTime;
-  };
-
-  const mergeSyncData = async (syncResponse: SyncDataResponse) => {
-    const pendingItems = apiService.getQueueStatus().queue;
-
-    // Merge Productos
-    if (syncResponse.productos) {
-      const apiProductIds = new Set(syncResponse.productos.map(p => p.id));
-      const localProductosToKeep: Producto[] = [];
-
-      // Process server items
-      for (const apiItem of syncResponse.productos) {
-        const localItem = productos.value.find(p => p.id === apiItem.id);
-        if (localItem) {
-          if (isServerNewer(apiItem.timestamp, localItem.timestamp)) {
-            Object.assign(localItem, apiItem);
-          }
-          localProductosToKeep.push(localItem);
-        } else {
-          apiItem.timestamp = apiItem.timestamp || epochTime; // Ensure new items have a timestamp
-          localProductosToKeep.push(apiItem);
-        }
-      }
-      
-      // Add new local items pending sync (not yet on server)
-      productos.value.forEach(localItem => {
-        if (!apiProductIds.has(localItem.id)) {
-          const isPendingNew = pendingItems.some(
-            (item: QueueItem) => (item.data as SyncAction).type === SyncActionType.NEW_PRODUCT && ((item.data as SyncAction).payload as { id: number }).id === localItem.id
-          );
-          if (isPendingNew) {
-            localProductosToKeep.push(localItem);
-          }
-        }
-      });
-      productos.value = localProductosToKeep;
-    }
-
-    // Merge Categorias
-    if (syncResponse.categorias) {
-      const apiCategoriaIds = new Set(syncResponse.categorias.map(c => c.id));
-      const localCategoriasToKeep: Categoria[] = [];
-
-      for (const apiItem of syncResponse.categorias) {
-        const localItem = categorias.value.find(c => c.id === apiItem.id);
-        if (localItem) {
-          if (isServerNewer(apiItem.timestamp, localItem.timestamp)) {
-            Object.assign(localItem, apiItem);
-          }
-          localCategoriasToKeep.push(localItem);
-        } else {
-          apiItem.timestamp = apiItem.timestamp || epochTime;
-          localCategoriasToKeep.push(apiItem);
-        }
-      }
-      
-      // Since categories are predefined and not user-creatable offline,
-      // the server's list of categories is authoritative.
-      // Any local category not in the server's response should be removed.
-      // The `localCategoriasToKeep` already contains all categories from the server (either updated existing ones or new ones from server).
-      categorias.value = localCategoriasToKeep.sort((a,b) => a.id - b.id);
-    }
-
-    // Merge Supermercados
-    if (syncResponse.supermercados) {
-      const apiSupermercadoIds = new Set(syncResponse.supermercados.map(s => s.id));
-      const localSupermercadosToKeep: Supermercado[] = [];
-
-      for (const apiItem of syncResponse.supermercados) {
-        const localItem = supermercados.value.find(s => s.id === apiItem.id);
-        if (localItem) {
-          if (isServerNewer(apiItem.timestamp, localItem.timestamp)) {
-            Object.assign(localItem, apiItem);
-          }
-          localSupermercadosToKeep.push(localItem);
-        } else {
-          apiItem.timestamp = apiItem.timestamp || epochTime;
-          localSupermercadosToKeep.push(apiItem);
-        }
-      }
-      
-      supermercados.value.forEach(localItem => {
-        if (!apiSupermercadoIds.has(localItem.id)) {
-          const isPendingNew = pendingItems.some(
-            (item: QueueItem) => (item.data as SyncAction).type === SyncActionType.NEW_SUPERMARKET && ((item.data as SyncAction).payload as { id: number }).id === localItem.id
-          );
-          // Also keep the default 'Any Supermarket' (id: 0)
-          if (isPendingNew || localItem.id === 0) {
-            localSupermercadosToKeep.push(localItem);
-          }
-        }
-      });
-      supermercados.value = localSupermercadosToKeep;
-      sortSupermercadosByOrder(); // Ensure order is maintained
-    }
-    // Note: saveDataToLocalStorage() is called in periodicSyncWithAPI after this function completes.
-  };
-
-  const storeInstance = {
+  return {
     appName,
     defaultTabActive,
     alturaDisponible,
     fullScreen,
     maxLenght,
     loginData,
-    updateLoginData,
     supermercados,
     categorias,
     productos,
@@ -932,9 +622,6 @@ export const myStore = () => {
     setAmount,
     toggleSelected,
     toggleDone,
-    updateProductText,
-    updateCategoryText,
-    updateCategoryVisible,
     setEmail,
     setToken,
     setFingerID,
@@ -953,10 +640,5 @@ export const myStore = () => {
     setDefaultTabActive,
     resetToDefaults,
     updateProductos
-    // periodicSyncWithAPI, mergeSyncData, isServerNewer are local to myStore, not part of the returned instance
   };
-
-  apiService.setStoreInstance(storeInstance);
-
-  return storeInstance;
 };

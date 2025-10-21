@@ -7,7 +7,6 @@ export default defineNuxtConfig({
       layoutTransition: false
   },
   modules: [
-    '~/modules/runtime-config.ts',
     process.env.NODE_ENV === 'production'
       ? ['@vite-pwa/nuxt', {
           manifest: {
