@@ -1,7 +1,7 @@
 <template>
   <div class="my-select" ref="selectRef" @blur="closeDropdown">
-    <div @click="toggleDropdown" class="selected-option" tabindex="0" :class="[(addFilter2Images.includes(selectedOption.logo || '') ? 'white' : ''), showDropdown ? 'show' : '']">
-      <MyImage :image="selectedOption.logo || ''" v-if="!hideSelectedImage" />
+    <div @click="toggleDropdown" class="selected-option" tabindex="0" :class="[(addFilter2Images.includes(selectedOption.logo) ? 'white' : ''), showDropdown ? 'show' : '']">
+      <MyImage :image="selectedOption.logo" v-if="!hideSelectedImage" />
       <div class="label" :class="{ 'noimage': hideSelectedImage }">{{ selectedOption.text ? selectedOption.text : placeholder }}</div>
     </div>
     <div class="dropdown" :class="{ show: showDropdown }" :style="{ top: dropdownTop + 'px', left: dropdownLeft + 'px', width: dropdownWidth + 'px' }">
@@ -21,7 +21,7 @@
 
 <script lang="ts" setup>
 import { ref, watch } from 'vue';
-import type { Supermercado, Tab, MySelectOption } from '~/types';
+import type { Supermercado, Tab } from '~/types';
 import '~/css/components/MySelect.css';
 
 const selectRef = ref<HTMLElement | null>(null);
@@ -30,14 +30,7 @@ const props = defineProps({
   hideSelectedImage: { type: Boolean, default: false },
   options: { type: Array as () => Supermercado[] | Tab[], required: true },
   placeholder: { type: String, default: 'Seleccione una opción' },
-  selected: {
-    type: Object as () => MySelectOption,
-    default: () => ({
-      id: -1,
-      text: null,
-      logo: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg=="
-    })
-  }
+  selected: { type: Object, default: () => ({ id: -1, text: null, logo: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg==" }) }
 });
 
 const emit = defineEmits(['dropDown', 'select', 'click']);
@@ -64,7 +57,7 @@ const toggleDropdown = () => {
   showDropdown.value = !showDropdown.value;
 };
 
-const selectOption = (option: MySelectOption) => {
+const selectOption = (option: Tab | Supermercado) => {
   selectedOption.value = option;
   emit('select', option);
   showDropdown.value = false;

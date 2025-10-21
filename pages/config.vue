@@ -138,6 +138,20 @@
           />
         </div>
         <div class="col-lg-4 col-md-6 px-4 mt-4" v-if="store.loginData.value.logged">
+          <MyButton
+            :text="isSyncing ? 'Sincronizando...' : 'Sincronizar Datos'"
+            :disabled="isSyncing"
+            class="btn btn-secondary fw-bold w-100"
+            @click="handleSync"
+          />
+          <div class="text-center mt-1 small">
+            <span v-if="lastSyncTime">
+              Última sincronización: {{ formatFechaConLeadingZero(lastSyncTime) }}
+            </span>
+            <span v-else>
+              No se ha sincronizado aún
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -150,11 +164,11 @@
 </template>
 
 <script lang="ts" setup>
-  import { ref } from 'vue';
-  import draggable from 'vuedraggable';
+  import draggable from 'vuedraggable'
   import type { Tab } from '~/types';
   import { myStore } from '~/composables/useStore';
-  import { _DOM } from '~/utils/dom'
+  import { ref, watch } from 'vue';
+  import { _DOM, DID } from '~/utils/dom'
   // Importar package.json para obtener la versión automáticamente
   // @ts-ignore - Ignoramos el error de TypeScript para la importación de JSON
   import * as packageJson from '../package.json'
@@ -169,6 +183,8 @@
   import { useFormChanges } from '~/composables/useFormChanges';
   import { handleImport as importFile, handleExport as exportFile } from '~/utils/fileHandlers';
   import { showConfirm, showErrorSwal as showError, showSuccess } from '~/utils/sweetalert';
+  import { useSync } from '~/composables/useSync';
+  import { formatFechaConLeadingZero } from '~/utils/dateUtils';
   import { handleLastCheckedDeletionAttempt, handleSync as syncHandler } from '~/utils/configHandlers';
 
   interface Change2Save {
@@ -185,7 +201,7 @@
   //creamos un array numerico únicamente con los ids de los supermercados visibles
   const supermarketsVisibles = ref<number[]>(store.supermercados.value.filter(supermercado => supermercado.visible).map(supermercado => supermercado.id));
   const fullScreen = ref<boolean>(store.fullScreen.value);
-  const tabselected = ref<Tab>(store.tabs.find(tab => tab.id === defaultTabActive.value) || store.tabs[0]);
+  const tabselected = ref<Tab>(store.tabs[defaultTabActive.value]);
   // Usar el composable useFormChanges para gestionar los cambios
   const { changes: changes2Save, markAsChanged, saveChanges } = useFormChanges({
     categoriasVisibles: false,
@@ -212,6 +228,15 @@
   const { fingerID } = useFingerprint();
 
 
+
+  // Inicializar el composable de sincronización
+  const {
+    syncWithServer,
+    isSyncing,
+    lastSyncTime,
+    syncStatus
+  } = useSync();
+
   const handleCategoriasCheckedValues = (values: number[]): void => {
     categoriasVisibles.value = values;
     markAsChanged('categoriasVisibles');
@@ -222,8 +247,8 @@
     markAsChanged('supermarketsVisible');
   }
 
-  const handleDefaultTabActiveChange = (value: Tab): void => {
-    defaultTabActive.value = value.id;
+  const handleDefaultTabActiveChange = (value: number): void => {
+    defaultTabActive.value = value;
     markAsChanged('defaultTabActive');
   }
 
@@ -293,7 +318,14 @@
    * handleSync
    * Función para sincronizar manualmente los datos con el servidor
    */
-  const handleSync = ()=>console.log("Por desarrollar...");
+  const handleSync = async (): Promise<void> => {
+    // Importar el composable useUserData
+    const { useUserData } = await import('~/composables/useUserData');
+    const { fetchUserData, compareData } = useUserData();
+
+    // Usar la función de utilidad para manejar la sincronización
+    await syncHandler(store, fetchUserData, compareData, syncWithServer);
+  };
 
   const handleReset = (): void => {
     showConfirm(

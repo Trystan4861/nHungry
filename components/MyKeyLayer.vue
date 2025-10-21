@@ -29,7 +29,6 @@ import { ref, watch, computed } from 'vue';
 import { getCssVar, toPixels } from '~/utils/cssVars';
 import MyKey from './MyKey.vue';
 import '~/css/components/MyKeyLayer.css';
-import { useTouch } from '~/composables/useTouch';
 
 const props = defineProps({
   show: { type: Boolean, required: true },
@@ -106,28 +105,16 @@ const handleKeySelect = (key: string) => {
   currentIndex.value = -1;
 };
 
-const { handleTouchStart: originalHandleTouchStart, handleTouchEnd: originalHandleTouchEnd } = useTouch({
-  longPressDelay: 500
-});
-
 const handleTouchStart = (event: TouchEvent, index: number) => {
   event.preventDefault();
-  originalHandleTouchStart(event, {
-    onTouchStart: () => {
-      currentIndex.value = index;
-    }
-  });
+  currentIndex.value = index;
 };
 
 const handleTouchEnd = (event: TouchEvent, key: string) => {
   event.preventDefault();
-  originalHandleTouchEnd(event, {
-    onTap: () => {
-      if (currentIndex.value >= 0) {
-        handleKeySelect(key);
-      }
-    }
-  });
+  if (currentIndex.value >= 0) {
+    handleKeySelect(key);
+  }
 };
 
 // Resetear el índice cuando se oculta el layer
